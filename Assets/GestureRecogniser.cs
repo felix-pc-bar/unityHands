@@ -11,10 +11,14 @@ public class GestureRecognizer : MonoBehaviour
     public Camera xrUICamera;
     public LayerMask uiLayerMask = -1; // Set this to your UI layer in inspector
     public GameObject cubePrefab; // Assign a cube prefab with Rigidbody in the inspector
+    public Transform xrOrigin; // Assign XR Origin in inspector
+    public Vector3 handPositionOffset = new Vector3(0f, 1.0f, 0f);
 
     private bool wasPinchingLastFrame = false;
     private GameObject lineObj;
     private LineRenderer lineRenderer;
+    private GameObject grabbedObject = null;
+    private int unpinchedFrames = 0;
 
     void Start()
     {
@@ -29,15 +33,15 @@ public class GestureRecognizer : MonoBehaviour
             Debug.LogError("No XRHandSubsystem found. Ensure XR Hands is enabled and OpenXR is properly set up.");
         }
 
-        lineObj = new GameObject("__PalmRayVisualizer");
+        lineObj = new GameObject("__PalmRayVisualizer_" + handNode);
         lineRenderer = lineObj.AddComponent<LineRenderer>();
         lineRenderer.startWidth = 0.01f;
         lineRenderer.endWidth = 0.005f;
         lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
         lineRenderer.positionCount = 2;
         lineRenderer.useWorldSpace = true;
-        lineRenderer.startColor = Color.green;
-        lineRenderer.endColor = Color.green;
+        lineRenderer.startColor = handNode == XRNode.RightHand ? Color.pink : Color.azure;
+        lineRenderer.endColor = lineRenderer.startColor;
     }
 
     void Update()
@@ -49,36 +53,64 @@ public class GestureRecognizer : MonoBehaviour
 
         bool isPinching = pinchDist(hand) < 0.03f;
 
-        if (TryGetJointPos(hand, XRHandJointID.Palm, out Vector3 palmPos) &&
-            TryGetJointForward(hand, XRHandJointID.Palm, out Vector3 palmFwd))
+        if (TryGetJointPose(hand, XRHandJointID.Palm, out Pose palmPose))
         {
+            Vector3 palmPos = (xrOrigin ? xrOrigin.TransformPoint(palmPose.position) : palmPose.position) + handPositionOffset;
+            Vector3 palmFwd = xrOrigin ? xrOrigin.TransformDirection(palmPose.rotation * Vector3.forward) : palmPose.rotation * Vector3.forward;
             Ray palmRay = new Ray(palmPos, palmFwd);
 
             // Visualize the ray
-            DrawLineInGameView(palmPos, palmPos + palmFwd * 2f, Color.green);
-
-            if (isPinching && !wasPinchingLastFrame)
+            DrawLineInGameView(palmPos, palmPos + palmFwd * 2f, lineRenderer.startColor);
+            //  && !wasPinchingLastFrame
+            if (isPinching)
             {
-                // Raycast to UI (optional)
-                if (Physics.Raycast(palmRay, out RaycastHit hit, 5f, uiLayerMask))
+                Debug.Log($"[{handNode}] Pinch detected");
+                unpinchedFrames = 0; //reset counter
+                if (handNode == XRNode.RightHand)
                 {
-                    Debug.Log($"Pinch UI hit: {hit.collider.name}");
-
-                    var button = hit.collider.GetComponent<Button>();
-                    if (button)
-                        button.onClick.Invoke();
-                }
-
-                // Spawn cube
-                if (cubePrefab != null)
-                {
-                    GameObject cube = Instantiate(cubePrefab, palmPos + palmFwd * 0.1f, Quaternion.identity);
-                    Rigidbody rb = cube.GetComponent<Rigidbody>();
-                    if (rb != null)
+                    if (cubePrefab != null)
                     {
-                        rb.linearVelocity = palmFwd * 1f; // give it some forward velocity
+                        GameObject cube = Instantiate(cubePrefab, palmPos + palmFwd * 0.1f, Quaternion.identity);
+                        Rigidbody rb = cube.GetComponent<Rigidbody>();
+                        if (rb != null)
+                        {
+                            rb.linearVelocity = palmFwd * 1f;
+                        }
+                        Debug.Log("Cube spawned at: " + cube.transform.position);
                     }
                 }
+                else if (handNode == XRNode.LeftHand)
+                {
+                    Debug.Log("Left hand attempting grab...");
+                    if (Physics.Raycast(palmRay, out RaycastHit hit, 2f))
+                    {
+                        Debug.Log("Raycast hit: " + hit.collider.name);
+                        if (hit.collider != null && hit.collider.attachedRigidbody != null)
+                        {
+                            grabbedObject = hit.collider.gameObject;
+                            Debug.Log("Grabbed object: " + grabbedObject.name);
+                        }
+                    }
+                    else
+                    {
+                        Debug.Log("Raycast from left hand missed");
+                    }
+                }
+            }
+            else if (!isPinching && grabbedObject != null)
+            {
+                unpinchedFrames++; //inc counter
+                if (unpinchedFrames > 10)
+                {
+                    Debug.Log("Released object");
+                    grabbedObject = null;
+                    unpinchedFrames = 0;
+                }
+            }
+
+            if (grabbedObject != null)
+            {
+                grabbedObject.transform.position = palmPos + palmFwd * 0.1f;
             }
         }
 
@@ -91,8 +123,6 @@ public class GestureRecognizer : MonoBehaviour
         {
             lineRenderer.SetPosition(0, start);
             lineRenderer.SetPosition(1, end);
-            lineRenderer.startColor = color;
-            lineRenderer.endColor = color;
         }
     }
 
@@ -110,21 +140,24 @@ public class GestureRecognizer : MonoBehaviour
     {
         if (hand.GetJoint(id).TryGetPose(out Pose pose))
         {
-            pos = pose.position;
+            pos = (xrOrigin ? xrOrigin.TransformPoint(pose.position) : pose.position) + handPositionOffset;
             return true;
         }
         pos = Vector3.zero;
         return false;
     }
 
-    bool TryGetJointForward(XRHand hand, XRHandJointID id, out Vector3 forward)
+    bool TryGetJointPose(XRHand hand, XRHandJointID id, out Pose pose)
     {
-        if (hand.GetJoint(id).TryGetPose(out Pose pose))
+        if (hand.GetJoint(id).TryGetPose(out pose))
         {
-            forward = pose.rotation * Vector3.forward;
+            if (xrOrigin)
+            {
+                pose.position = xrOrigin.TransformPoint(pose.position) + handPositionOffset;
+                pose.rotation = xrOrigin.rotation * pose.rotation;
+            }
             return true;
         }
-        forward = Vector3.forward;
         return false;
     }
 }
