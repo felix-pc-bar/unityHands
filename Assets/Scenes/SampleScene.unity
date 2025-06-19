@@ -496,6 +496,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   handNode: 5
+  xrUICamera: {fileID: 0}
+  uiLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  cubePrefab: {fileID: 8704198148300670557, guid: 739d46791832ea34e8a5447dc6e2bf00, type: 3}
 --- !u!4 &105961556
 Transform:
   m_ObjectHideFlags: 0
