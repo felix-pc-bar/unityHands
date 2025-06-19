@@ -19,7 +19,7 @@ public class GestureRecognizer : MonoBehaviour
     private LineRenderer lineRenderer;
     private GameObject grabbedObject = null;
     private int unpinchedFrames = 0;
-
+    private float grabDist = 0;
     void Start()
     {
         var subsystems = new List<XRHandSubsystem>();
@@ -62,9 +62,8 @@ public class GestureRecognizer : MonoBehaviour
             // Visualize the ray
             DrawLineInGameView(palmPos, palmPos + palmFwd * 2f, lineRenderer.startColor);
             //  && !wasPinchingLastFrame
-            if (isPinching)
+            if (isPinching && !wasPinchingLastFrame)
             {
-                Debug.Log($"[{handNode}] Pinch detected");
                 unpinchedFrames = 0; //reset counter
                 if (handNode == XRNode.RightHand)
                 {
@@ -72,28 +71,24 @@ public class GestureRecognizer : MonoBehaviour
                     {
                         GameObject cube = Instantiate(cubePrefab, palmPos + palmFwd * 0.1f, Quaternion.identity);
                         Rigidbody rb = cube.GetComponent<Rigidbody>();
-                        if (rb != null)
-                        {
-                            rb.linearVelocity = palmFwd * 1f;
+                        for (int i = 0; i<5;i++) {
+                            if (rb != null)
+                            {
+                                rb.linearVelocity = palmFwd * 1f;
+                            }
                         }
-                        Debug.Log("Cube spawned at: " + cube.transform.position);
                     }
                 }
                 else if (handNode == XRNode.LeftHand)
                 {
-                    Debug.Log("Left hand attempting grab...");
                     if (Physics.Raycast(palmRay, out RaycastHit hit, 2f))
                     {
-                        Debug.Log("Raycast hit: " + hit.collider.name);
                         if (hit.collider != null && hit.collider.attachedRigidbody != null)
                         {
                             grabbedObject = hit.collider.gameObject;
-                            Debug.Log("Grabbed object: " + grabbedObject.name);
+                            grabDist = hit.distance;
+                            Debug.Log(grabDist);
                         }
-                    }
-                    else
-                    {
-                        Debug.Log("Raycast from left hand missed");
                     }
                 }
             }
@@ -102,7 +97,6 @@ public class GestureRecognizer : MonoBehaviour
                 unpinchedFrames++; //inc counter
                 if (unpinchedFrames > 10)
                 {
-                    Debug.Log("Released object");
                     grabbedObject = null;
                     unpinchedFrames = 0;
                 }
@@ -110,7 +104,7 @@ public class GestureRecognizer : MonoBehaviour
 
             if (grabbedObject != null)
             {
-                grabbedObject.transform.position = palmPos + palmFwd * 0.1f;
+                grabbedObject.transform.position = palmPos + palmFwd * grabDist;
             }
         }
 
